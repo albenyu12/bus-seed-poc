@@ -1,4 +1,5 @@
 import type {
+  ExperimentRouteMetadata,
   ExperimentMeasurements,
   ExperimentRecord,
 } from '../application/experiment'
@@ -66,16 +67,33 @@ function normalizeExperimentRecord(value: unknown): ExperimentRecord | undefined
   const measurements = isExperimentMeasurements(candidate.measurements)
     ? candidate.measurements
     : legacyMeasurements(candidate)
+  const route = isExperimentRouteMetadata(candidate.route)
+    ? candidate.route
+    : undefined
 
   return {
     ...candidate,
     failureReasons: Array.isArray(candidate.failureReasons)
       ? candidate.failureReasons.filter(
           (reason): reason is string => typeof reason === 'string',
-        )
+      )
       : [],
     measurements,
+    route,
   } as ExperimentRecord
+}
+
+function isExperimentRouteMetadata(
+  value: unknown,
+): value is ExperimentRouteMetadata {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<ExperimentRouteMetadata>
+  return (
+    (candidate.stopSetId === 'ab' || candidate.stopSetId === 'cd') &&
+    (candidate.direction === 'forward' || candidate.direction === 'reverse') &&
+    typeof candidate.originStopId === 'string' &&
+    typeof candidate.destinationStopId === 'string'
+  )
 }
 
 function isExperimentMeasurements(
