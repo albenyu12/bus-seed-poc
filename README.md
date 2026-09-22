@@ -1,75 +1,62 @@
-# React + TypeScript + Vite
+# Bus Seed Propagation PoC
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+GPS로 다음 흐름을 검증하는 기술 PoC입니다.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```text
+출발 정류장 체류 → 씨앗 획득 → 이동 → 도착 정류장 체류 → 씨앗 전파
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+## 실행
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm install
+npm run dev
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+브라우저에서 [http://localhost:5173](http://localhost:5173)에 접속합니다.
 
+## Fake GPS 테스트
+
+1. `Fake GPS`를 선택합니다.
+2. 정류장 세트와 이동 방향을 선택합니다.
+3. 정상 시나리오를 실행합니다.
+4. 최종 상태가 `PROPAGATED`인지 확인합니다.
+
+지원 경로:
+
+- A → B
+- B → A
+- C → D
+- D → C
+
+## Browser GPS 테스트
+
+1. HTTPS 또는 localhost에서 접속합니다.
+2. 위치 권한을 허용합니다.
+3. 정류장 세트와 이동 방향을 선택합니다.
+4. 실제 위치에서 출발 정류장과 도착 정류장에 체류합니다.
+5. `GPS 정지 및 저장`을 누릅니다.
+6. 필요하면 `JSON 내보내기`로 결과를 저장합니다.
+
+## 성공 기준
+
+다음 이벤트가 순서대로 발생하면 성공입니다.
+
+```text
+출발 정류장 진입
+→ 씨앗 획득
+→ 출발 정류장 이탈
+→ 도착 정류장 접근
+→ 도착 인정
+→ 씨앗 전파
+```
+
+최종 상태: `PROPAGATED`
+
+## 검증 명령
+
+```bash
+npm run test
+npm run build
+npm run lint
 ```
