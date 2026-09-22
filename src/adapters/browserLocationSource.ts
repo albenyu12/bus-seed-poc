@@ -43,6 +43,7 @@ export class BrowserLocationSource implements LocationSource {
           })
         },
         (error) => {
+          if (stopped) return
           const mappedError = mapGeolocationError(error)
           onError(mappedError)
           if (mappedError.code === 'permission-denied') stop()

@@ -99,6 +99,34 @@ describe('BrowserLocationSource', () => {
     expect(clearWatch).toHaveBeenCalledWith(3)
   })
 
+  it('ignores errors delivered after the watch is stopped', () => {
+    let reportError: ((error: GeolocationPositionError) => void) | undefined
+    const clearWatch = vi.fn()
+    setNavigator({
+      geolocation: {
+        watchPosition: vi.fn((_onSuccess, onError) => {
+          reportError = onError
+          return 9
+        }),
+        clearWatch,
+      },
+    })
+    const onError = vi.fn()
+    const stop = new BrowserLocationSource().start(vi.fn(), onError)
+
+    stop()
+    reportError?.({
+      code: 2,
+      PERMISSION_DENIED: 1,
+      POSITION_UNAVAILABLE: 2,
+      TIMEOUT: 3,
+      message: 'unavailable',
+    } as GeolocationPositionError)
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(clearWatch).toHaveBeenCalledWith(9)
+  })
+
   it('reports synchronous watch failures', () => {
     setNavigator({
       geolocation: {

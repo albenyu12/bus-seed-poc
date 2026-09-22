@@ -63,4 +63,52 @@ describe('LocalStorageExperimentStore', () => {
       duplicateSampleCount: 0,
     })
   })
+
+  it('preserves route metadata for newly saved records', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'bus-seed-poc.experiment-results.v1',
+      JSON.stringify({
+        version: 1,
+        runs: [
+          {
+            id: 'cd-reverse-1',
+            title: 'C-D reverse',
+            mode: 'fake',
+            status: 'PASS',
+            expectedState: 'PROPAGATED',
+            actualState: 'PROPAGATED',
+            expectedEvents: [],
+            actualEvents: [],
+            sampleCount: 2,
+            eventLog: [],
+            route: {
+              stopSetId: 'cd',
+              direction: 'reverse',
+              originStopId: 'D',
+              destinationStopId: 'C',
+            },
+            measurements: {
+              receivedSampleCount: 2,
+              acceptedSampleCount: 2,
+              ignoredSampleCount: 0,
+              duplicateSampleCount: 0,
+              maxADwellMs: 20_000,
+              maxBDwellMs: 15_000,
+              finalState: 'PROPAGATED',
+            },
+          },
+        ],
+      }),
+    )
+
+    const runs = new LocalStorageExperimentStore(storage).load()
+
+    expect(runs[0].route).toEqual({
+      stopSetId: 'cd',
+      direction: 'reverse',
+      originStopId: 'D',
+      destinationStopId: 'C',
+    })
+  })
 })

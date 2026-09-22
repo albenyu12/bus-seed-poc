@@ -7,7 +7,7 @@ import {
 import { formatRelativeTime } from '../src/application/eventLog'
 import { TripController } from '../src/application/tripController'
 import { createFakeScenarioCatalog } from '../src/config/fakeScenarios'
-import { STOPS } from '../src/config/stops'
+import { resolveRoute, STOPS } from '../src/config/stops'
 import { DEFAULT_THRESHOLDS } from '../src/domain/types'
 
 describe('experiment scenarios', () => {
@@ -43,6 +43,45 @@ describe('experiment scenarios', () => {
       expect(record.measurements.receivedSampleCount, scenario.id).toBe(
         scenario.samples.length,
       )
+    }
+  })
+
+  it('runs the normal propagation flow for every selected route', () => {
+    const routes = [
+      resolveRoute('ab', 'forward'),
+      resolveRoute('ab', 'reverse'),
+      resolveRoute('cd', 'forward'),
+      resolveRoute('cd', 'reverse'),
+    ]
+
+    for (const route of routes) {
+      const scenario = createFakeScenarioCatalog(route.domainStops)[0]
+      const source = new FakeLocationSource()
+      const controller = new TripController(source, {
+        stops: route.domainStops,
+        thresholds: DEFAULT_THRESHOLDS,
+      })
+
+      controller.start()
+      scenario.samples.forEach((sample) => source.emit(sample))
+
+      const record = evaluateFakeScenario(
+        scenario,
+        controller.getSnapshot(),
+        1,
+        2,
+        route,
+      )
+
+      expect(record.status, route.stopSetId + '-' + route.direction).toBe(
+        'PASS',
+      )
+      expect(record.route).toMatchObject({
+        stopSetId: route.stopSetId,
+        direction: route.direction,
+        originStopId: route.origin.id,
+        destinationStopId: route.destination.id,
+      })
     }
   })
 

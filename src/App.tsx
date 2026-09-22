@@ -17,7 +17,12 @@ import {
 import {
   createFakeScenarioCatalog,
 } from './config/fakeScenarios'
-import { STOPS } from './config/stops'
+import {
+  resolveRoute,
+  STOP_SETS,
+  type RouteDirection,
+  type StopSetId,
+} from './config/stops'
 import {
   DEFAULT_THRESHOLDS,
   initialTripState,
@@ -68,14 +73,27 @@ const initialSnapshot: TripControllerSnapshot = {
   diagnostics: [],
 }
 
-const eventLabels: Record<DomainEvent['type'], string> = {
-  'entered-a': 'A 정류장 진입',
-  'acquired-seed': '씨앗 획득',
-  'left-a': 'A 정류장 이탈',
-  'approaching-b': 'B 정류장 접근',
-  'arrived-at-b': 'B 도착 인정',
-  'cancelled-b-dwell': 'B 체류 취소',
-  'propagated-seed': '씨앗 전파',
+function eventLabel(
+  eventType: DomainEvent['type'],
+  originLabel: string,
+  destinationLabel: string,
+): string {
+  switch (eventType) {
+    case 'entered-a':
+      return originLabel + ' 정류장 진입'
+    case 'acquired-seed':
+      return '씨앗 획득'
+    case 'left-a':
+      return originLabel + ' 정류장 이탈'
+    case 'approaching-b':
+      return destinationLabel + ' 정류장 접근'
+    case 'arrived-at-b':
+      return destinationLabel + ' 도착 인정'
+    case 'cancelled-b-dwell':
+      return destinationLabel + ' 체류 취소'
+    case 'propagated-seed':
+      return '씨앗 전파'
+  }
 }
 
 function formatDistance(distance: number | undefined): string {
@@ -103,7 +121,12 @@ function formatDwell(
   )
 }
 
-function formatEvent(event: DomainEvent, timelineStartTimestamp: number): string {
+function formatEvent(
+  event: DomainEvent,
+  timelineStartTimestamp: number,
+  originLabel: string,
+  destinationLabel: string,
+): string {
   const distance =
     'distanceMeters' in event
       ? ' · ' + Math.round(event.distanceMeters) + 'm'
@@ -111,13 +134,29 @@ function formatEvent(event: DomainEvent, timelineStartTimestamp: number): string
   return (
     formatRelativeTime(event.timestamp, timelineStartTimestamp) +
     ' · ' +
-    eventLabels[event.type] +
+    eventLabel(event.type, originLabel, destinationLabel) +
     distance
+  )
+}
+
+function recordMatchesRoute(
+  record: ExperimentRecord,
+  route: ReturnType<typeof resolveRoute>,
+): boolean {
+  if (!record.route) {
+    return route.stopSetId === 'ab' && route.direction === 'forward'
+  }
+
+  return (
+    record.route.stopSetId === route.stopSetId &&
+    record.route.direction === route.direction
   )
 }
 
 function App() {
   const [sourceMode, setSourceMode] = useState<SourceMode>('fake')
+  const [selectedStopSetId, setSelectedStopSetId] = useState<StopSetId>('ab')
+  const [direction, setDirection] = useState<RouteDirection>('forward')
   const [locationHealth, setLocationHealth] = useState<LocationHealth>('idle')
   const [sourceError, setSourceError] = useState<string>()
   const [browserRunning, setBrowserRunning] = useState(false)
@@ -128,7 +167,18 @@ function App() {
     number | undefined
   >()
   const [wasStale, setWasStale] = useState(false)
-  const scenarios = useMemo(() => createFakeScenarioCatalog(STOPS), [])
+  const route = useMemo(
+    () => resolveRoute(selectedStopSetId, direction),
+    [direction, selectedStopSetId],
+  )
+  const scenarios = useMemo(
+    () =>
+      createFakeScenarioCatalog(route.domainStops, {
+        origin: route.origin.label,
+        destination: route.destination.label,
+      }),
+    [route],
+  )
   const source = useMemo<LocationSource>(
     () =>
       sourceMode === 'fake'
@@ -151,7 +201,7 @@ function App() {
   const controller = useMemo(
     () =>
       new TripController(source, {
-        stops: STOPS,
+        stops: route.domainStops,
         thresholds: DEFAULT_THRESHOLDS,
         onUpdate: (nextSnapshot) => {
           setSnapshot(nextSnapshot)
@@ -173,7 +223,7 @@ function App() {
           }
         },
       }),
-    [source, sourceMode],
+    [route, source, sourceMode],
   )
   const selectedScenario =
     scenarios.find((scenario) => scenario.id === selectedScenarioId) ??
@@ -228,7 +278,9 @@ function App() {
   const currentTimestamp = observation?.timestamp
   const hasSeed = snapshot.state.seed !== undefined
   const hasPropagated = snapshot.state.propagation !== undefined
-  const latestBrowserRecord = records.find((record) => record.mode === 'real')
+  const latestBrowserRecord = records.find(
+    (record) => record.mode === 'real' && recordMatchesRoute(record, route),
+  )
 
   function saveRecord(record: ExperimentRecord): void {
     setRecords((previous) => {
@@ -250,6 +302,7 @@ function App() {
         controller.getSnapshot(),
         startedAt,
         currentWallClock(),
+        route,
       )
       saveRecord(record)
       setRunStatus(record.status)
@@ -279,6 +332,7 @@ function App() {
       startedAt,
       currentWallClock(),
       wasStale,
+      route,
     )
     saveRecord(record)
     setBrowserRunning(false)
@@ -302,6 +356,26 @@ function App() {
     setSourceError(undefined)
     setLocationHealth('idle')
     setRunStatus('NOT_RUN')
+  }
+
+  function changeRoute(
+    nextStopSetId: StopSetId,
+    nextDirection: RouteDirection,
+  ): void {
+    if (browserRunning || runStatus === 'RUNNING') return
+
+    if (source instanceof FakeLocationSource) source.stopPlayback()
+    controller.stop()
+    controller.reset()
+    setSnapshot(initialSnapshot)
+    setRunStatus('NOT_RUN')
+    setSourceError(undefined)
+    setBrowserSessionStartedAt(undefined)
+    setBrowserRunStartedAt(undefined)
+    setWasStale(false)
+    setLocationHealth('idle')
+    setSelectedStopSetId(nextStopSetId)
+    setDirection(nextDirection)
   }
 
   function changeSourceMode(nextMode: SourceMode): void {
@@ -362,7 +436,7 @@ function App() {
           <p className="eyebrow">BUS SEED PROPAGATION POC</p>
           <h1>GPS 상태 전이 디버거</h1>
           <p className="subtitle">
-            Fake GPS로 A 체류부터 B 도착과 씨앗 전파까지 검증합니다.
+            {route.origin.label} 체류부터 {route.destination.label} 도착과 씨앗 전파까지 검증합니다.
           </p>
         </div>
         <div className="mode-badge">
@@ -379,6 +453,44 @@ function App() {
       <section className="control-panel panel">
         <div>
           <p className="section-label">실험 제어</p>
+          <div className="controls route-controls">
+            <label>
+              <strong>정류장 세트</strong>
+              <select
+                value={selectedStopSetId}
+                onChange={(event) =>
+                  changeRoute(event.target.value as StopSetId, 'forward')
+                }
+                disabled={browserRunning || runStatus === 'RUNNING'}
+              >
+                {STOP_SETS.map((stopSet) => (
+                  <option key={stopSet.id} value={stopSet.id}>
+                    {stopSet.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <strong>이동 방향</strong>
+              <select
+                value={direction}
+                onChange={(event) =>
+                  changeRoute(selectedStopSetId, event.target.value as RouteDirection)
+                }
+                disabled={browserRunning || runStatus === 'RUNNING'}
+              >
+                <option value="forward">
+                  {route.origin.label} → {route.destination.label}
+                </option>
+                <option value="reverse">
+                  {route.destination.label} → {route.origin.label}
+                </option>
+              </select>
+            </label>
+          </div>
+          <p className="muted">
+            현재 경로: {route.origin.label} → {route.destination.label}
+          </p>
           <div className="controls">
             <button
               type="button"
@@ -472,13 +584,13 @@ function App() {
         </article>
         <article className="panel metric-card">
           <p className="section-label">DISTANCE</p>
-          <div className="metric-row"><span>A 정류장</span><strong>{formatDistance(observation?.distanceToA)}</strong></div>
-          <div className="metric-row"><span>B 정류장</span><strong>{formatDistance(observation?.distanceToB)}</strong></div>
+          <div className="metric-row"><span>{route.origin.label} 정류장</span><strong>{formatDistance(observation?.distanceToA)}</strong></div>
+          <div className="metric-row"><span>{route.destination.label} 정류장</span><strong>{formatDistance(observation?.distanceToB)}</strong></div>
         </article>
         <article className="panel metric-card">
           <p className="section-label">DWELL</p>
-          <div className="metric-row"><span>A 체류</span><strong>{formatDwell(snapshot.state.aDwellStartedAt, currentTimestamp, DEFAULT_THRESHOLDS.aDwellDurationMs, snapshot.state.seed !== undefined)}</strong></div>
-          <div className="metric-row"><span>B 체류</span><strong>{formatDwell(snapshot.state.bDwellStartedAt, currentTimestamp, DEFAULT_THRESHOLDS.bDwellDurationMs, hasPropagated || snapshot.state.status === 'AT_B')}</strong></div>
+          <div className="metric-row"><span>{route.origin.label} 체류</span><strong>{formatDwell(snapshot.state.aDwellStartedAt, currentTimestamp, DEFAULT_THRESHOLDS.aDwellDurationMs, snapshot.state.seed !== undefined)}</strong></div>
+          <div className="metric-row"><span>{route.destination.label} 체류</span><strong>{formatDwell(snapshot.state.bDwellStartedAt, currentTimestamp, DEFAULT_THRESHOLDS.bDwellDurationMs, hasPropagated || snapshot.state.status === 'AT_B')}</strong></div>
         </article>
         <article className="panel metric-card">
           <p className="section-label">SEED</p>
@@ -517,6 +629,8 @@ function App() {
                       event,
                       snapshot.measurements.timelineStartTimestamp ??
                         event.timestamp,
+                      route.origin.label,
+                      route.destination.label,
                     )}
                   </span>
                 </li>
@@ -538,7 +652,8 @@ function App() {
             <tbody>
               {scenarios.map((scenario) => {
                 const record = records.find((item) =>
-                  item.id.startsWith(scenario.id + '-'),
+                  item.id.startsWith(scenario.id + '-') &&
+                  recordMatchesRoute(item, route),
                 )
                 return (
                   <tr key={scenario.id}>
@@ -569,7 +684,9 @@ function App() {
               })}
               <tr>
                 <td>실제 Browser GPS</td>
-                <td>A 접근 → 체류 → B 도착 → 전파</td>
+                <td>
+                  {route.origin.label} 접근 → 체류 → {route.destination.label} 도착 → 전파
+                </td>
                 <td>PROPAGATED</td>
                 <td>
                   <span

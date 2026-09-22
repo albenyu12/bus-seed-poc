@@ -1,6 +1,11 @@
 import type { DomainEvent, TripStatus } from '../domain/types'
 import type { FakeScenario } from '../config/fakeScenarios'
 import type {
+  ResolvedRoute,
+  RouteDirection,
+  StopSetId,
+} from '../config/stops'
+import type {
   TripControllerSnapshot,
   TripMeasurements,
 } from './tripController'
@@ -18,6 +23,13 @@ export interface ExperimentMeasurements extends TripMeasurements {
   finalDistanceToB?: number
 }
 
+export interface ExperimentRouteMetadata {
+  stopSetId: StopSetId
+  direction: RouteDirection
+  originStopId: string
+  destinationStopId: string
+}
+
 export interface ExperimentRecord {
   id: string
   title: string
@@ -33,6 +45,7 @@ export interface ExperimentRecord {
   eventLog: DomainEvent[]
   failureReasons: string[]
   measurements: ExperimentMeasurements
+  route?: ExperimentRouteMetadata
   error?: string
   note?: string
 }
@@ -53,6 +66,7 @@ export function evaluateFakeScenario(
   snapshot: TripControllerSnapshot,
   startedAt: number,
   completedAt: number,
+  route?: ResolvedRoute,
 ): ExperimentRecord {
   const actualEvents = snapshot.eventLog.map((event) => event.type)
   const expectedEvents = [...scenario.expectedEvents]
@@ -89,6 +103,7 @@ export function evaluateFakeScenario(
       finalDistanceToA: snapshot.observation?.distanceToA,
       finalDistanceToB: snapshot.observation?.distanceToB,
     },
+    route: toRouteMetadata(route),
     error: snapshot.error,
     note: scenario.description,
   }
@@ -98,6 +113,7 @@ export function evaluateNormalFakeRun(
   snapshot: TripControllerSnapshot,
   startedAt: number,
   completedAt: number,
+  route?: ResolvedRoute,
 ): ExperimentRecord {
   const scenario: FakeScenario = {
     id: NORMAL_FAKE_EXPERIMENT_ID,
@@ -107,7 +123,7 @@ export function evaluateNormalFakeRun(
     expectedState: 'PROPAGATED',
     expectedEvents: NORMAL_FAKE_EXPECTED_EVENTS,
   }
-  return evaluateFakeScenario(scenario, snapshot, startedAt, completedAt)
+  return evaluateFakeScenario(scenario, snapshot, startedAt, completedAt, route)
 }
 
 export function evaluateBrowserRun(
@@ -115,6 +131,7 @@ export function evaluateBrowserRun(
   startedAt: number,
   completedAt: number,
   wasStale: boolean,
+  route?: ResolvedRoute,
 ): ExperimentRecord {
   const actualEvents = snapshot.eventLog.map((event) => event.type)
   const expectedEvents = [...NORMAL_FAKE_EXPECTED_EVENTS]
@@ -152,7 +169,21 @@ export function evaluateBrowserRun(
       finalDistanceToA: snapshot.observation?.distanceToA,
       finalDistanceToB: snapshot.observation?.distanceToB,
     },
+    route: toRouteMetadata(route),
     error: snapshot.error,
     note: 'GPS 정지 시 자동 저장된 실제 위치 실험 결과',
+  }
+}
+
+function toRouteMetadata(
+  route: ResolvedRoute | undefined,
+): ExperimentRouteMetadata | undefined {
+  if (!route) return undefined
+
+  return {
+    stopSetId: route.stopSetId,
+    direction: route.direction,
+    originStopId: route.origin.id,
+    destinationStopId: route.destination.id,
   }
 }
